@@ -120,14 +120,16 @@ def completePendingJob(rpcClient , act):
 
             output = []
             for i in range(len(sentences)):
+                
                 # encode
                 dtype = embeddings[i].dtype
                 shape = embeddings[i].shape
                 embeddings_bytes =  embeddings[i].tobytes()
                 embeddings_b64 = base64.b64encode(embeddings_bytes).decode('utf-8')
 
+                
                 output.append(
-                    [sentences[i][0], embeddings_b64, dtype, shape]
+                    [sentences[i][0], embeddings_b64, str(dtype), shape]
                 )
 
                 # decode
