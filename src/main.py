@@ -326,7 +326,7 @@ def main():
                         completePendingJob(stub, t, CACHE_PATH)
                     except Exception as e:
                         log(stub, "Error processing pending jobs "+ str(e), None)
-                    time.sleep(100.0/1000.0)
+                    time.sleep(10.0/1000.0)
         except Exception as e:
             log(None,"Error connecting to grpc server "+ str(e))
             
