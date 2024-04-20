@@ -11,6 +11,8 @@ ENV TRANSFORMERS_DEVICE="-1"
 ENV CACHE_PATH="/cache"
 ENV HF_HOME="/cache/hugginface"
 ENV MODEL="intfloat/multilingual-e5-base"
+ENV ADD_MARKERS_TO_SENTENCES="true"
+ENV OPENAI_API_KEY=""
 
 VOLUME /cache
 

@@ -14,18 +14,28 @@ import traceback
 import base64
 from sentence_transformers.quantization import quantize_embeddings
 import tiktoken
-            
+from openai import OpenAI
+ 
        
 class Runner (JobRunner):
+    openai = None
     def __init__(self, filters, meta, template, sockets):
         super().__init__(filters, meta, template, sockets)
         self.device = int(os.getenv('TRANSFORMERS_DEVICE', "-1"))
         self.cachePath = os.getenv('CACHE_PATH', os.path.join(os.path.dirname(__file__), "cache"))
         now = time.time()
         self.modelName = os.getenv('MODEL', "intfloat/multilingual-e5-base")
-        self.log("Loading "+ self.modelName + " on device "+str(self.device))
-        self.pipe = SentenceTransformer( self.modelName, device=self.device if self.device >= 0 else "cpu")
-        self.log( "Model loaded in "+str(time.time()-now)+" seconds")
+        self.maxTextLength = os.getenv('MAX_TEXT_LENGTH', 512)
+
+        if self.modelName.startswith("openai:"):
+            self.log("Using OpenAI API "+ self.modelName)
+            self.openai = OpenAI()
+            self.openaiModelName = self.modelName.replace("openai:","")
+        else:
+            self.log("Loading "+ self.modelName + " on device "+str(self.device))
+            self.pipe = SentenceTransformer( self.modelName, device=self.device if self.device >= 0 else "cpu")
+            self.log( "Model loaded in "+str(time.time()-now)+" seconds")
+        self.addMarkersToSentences = os.getenv('ADD_MARKERS_TO_SENTENCES', "true") == "true"
         if not os.path.exists(self.cachePath):
             os.makedirs(self.cachePath)
 
@@ -37,8 +47,6 @@ class Runner (JobRunner):
             chunk_tokens = tokenized_text[i:min(i+chunk_size, len(tokenized_text))]
             chunk = enc.decode(chunk_tokens)
             out.append([chunk, marker])
-
-
       
 
         # tokens = self.pipe.tokenizer.tokenize(text)
@@ -52,7 +60,7 @@ class Runner (JobRunner):
         to_encode_index=[]
         out = []        
         for s in sentences:
-            hash = hashlib.sha256(s.encode()).hexdigest()
+            hash = hashlib.sha256(self.modelName+":"+s.encode()).hexdigest()
             cache_file = self.cachePath+"/"+hash+".dat"
             if not os.path.exists(cache_file):
                 to_encode.append(s)
@@ -61,11 +69,25 @@ class Runner (JobRunner):
             else:
                 with open(cache_file, "rb") as f:
                     out.append(pickle.load(f))
+        # use openai for encoding
+        if self.openai:
+            encoded = []
+            for i in range(len(to_encode)):
+                response = self.openai.embeddings.create(
+                    input=to_encode[i],
+                    model=self.openaiModelName
+                )
+                embeddings = response.data[0].embedding
+                embeddings = np.array(embeddings)
+                encoded.append(embeddings)
+        # TODO: more apis?
+        # Use local model
+        else:
+            encoded = self.pipe.encode(to_encode)
 
-        encoded = self.pipe.encode(to_encode)
         for i in range(len(to_encode_index)):   
             out[to_encode_index[i]] = encoded[i]
-            hash = hashlib.sha256(to_encode[i].encode()).hexdigest()
+            hash = hashlib.sha256(self.modelName+":"+to_encode[i].encode()).hexdigest()
             with open(self.cachePath+"/"+hash+".dat", "wb") as f:
                 pickle.dump(encoded[i], f)
 
@@ -81,8 +103,10 @@ class Runner (JobRunner):
             return param[0].value[0] if len(param) > 0 else default
 
         # Extract parameters
-        max_tokens = int(getParamValue("max-tokens", "1024"))
-        overlap = int(getParamValue("overlap", "128"))
+        max_tokens = int(getParamValue("max-tokens", self.maxTextLength))
+        max_tokens = min(max_tokens, self.maxTextLength)
+
+        overlap = int(getParamValue("overlap",  int(max_tokens/3)))
         quantize = getParamValue("quantize", "true") == "true"
         outputFormat = job.outputFormat
 
@@ -123,7 +147,7 @@ class Runner (JobRunner):
 
         # Create embeddings
         self.log("Create embeddings for "+str(len(sentences))+" excerpts. max_tokens="+str(max_tokens)+", overlap="+str(overlap))
-        embeddings = self.encode([sentences[i][1]+": "+sentences[i][0] for i in range(len(sentences))])
+        embeddings = self.encode([(sentences[i][1]+": "+sentences[i][0] if self.addMarkersToSentences  else sentences[i][0]) for i in range(len(sentences))])  
         if quantize:
             self.log("Quantize embeddings")
             embeddings = self.quantize(embeddings)
@@ -138,10 +162,12 @@ class Runner (JobRunner):
                 dtype = embeddings[i].dtype
                 shape = embeddings[i].shape
                 sentences_bytes = sentences[i][0].encode("utf-8")
+                marker = sentences[i][1]
                 embeddings_bytes =  embeddings[i].tobytes()
                 blobDisk.writeBytes(str(i)+".embeddings.dtype", str(dtype).encode("utf-8"))
                 blobDisk.writeBytes(str(i)+".embeddings.shape", json.dumps(shape).encode("utf-8"))
                 blobDisk.writeBytes(str(i)+".embeddings", sentences_bytes)
+                blobDisk.writeBytes(str(i)+".embeddings.kind", marker.encode("utf-8"))
                 blobDisk.writeBytes(str(i)+".embeddings.vectors", embeddings_bytes)
                 output = blobDisk.getUrl()
             blobDisk.close()
@@ -155,7 +181,7 @@ class Runner (JobRunner):
                 embeddings_bytes =  embeddings[i].tobytes()
                 embeddings_b64 = base64.b64encode(embeddings_bytes).decode('utf-8')                    
                 jsonOut.append(
-                    [sentences[i][0], embeddings_b64, str(dtype), shape]
+                    [sentences[i][0], embeddings_b64, str(dtype), shape , sentences[i][1]]
                 )
             output=json.dumps(jsonOut)
             with open(cacheFile, "w") as f:
