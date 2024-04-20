@@ -18,6 +18,12 @@ sockets ={
             "description": "The number of tokens to overlap between each chunk",
             "name": "Overlap"
         },
+        "model":{
+            "type": "string",
+            "value": "text",
+            "description": "Specify which model to use. Empty for any",
+            "name": "Model"        
+        },
         "documents": {
             "type": "array",
             "description": "The documents to generate embeddings from",
@@ -73,6 +79,7 @@ template = """{
         ["param", "max-tokens", "{{in.max_tokens}}"],
         ["param", "overlap", "{{in.overlap}}"],
         ["param", "quantize", "{{in.quantize}}"],
+        ["param", "model", "{{in.model}}"],
         {{#in.documents}}
         ["i", "{{data}}", "{{data_type}}", "", "{{marker}}"],
         {{/in.documents}}

@@ -97,6 +97,13 @@ class Runner (JobRunner):
         binary_embeddings = quantize_embeddings(embeddings, precision="binary")
         return binary_embeddings
 
+    def canRun(self,job):
+        def getParamValue(key,default=None):
+            param = [x for x in job.param if x.key == key]
+            return param[0].value[0] if len(param) > 0 else default
+        model = getParamValue("model", self.modelName)
+        return model == self.modelName
+
     def run(self,job):
         def getParamValue(key,default=None):
             param = [x for x in job.param if x.key == key]
