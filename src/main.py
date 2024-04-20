@@ -13,7 +13,7 @@ import os
 import traceback
 import base64
 from sentence_transformers.quantization import quantize_embeddings
-
+import tiktoken
             
        
 class Runner (JobRunner):
@@ -30,11 +30,22 @@ class Runner (JobRunner):
             os.makedirs(self.cachePath)
 
     def split(self, text, chunk_size, overlap , marker,  out):
-        tokens = self.pipe.tokenizer.tokenize(text)
-        for i in range(0, len(tokens), chunk_size-overlap):
-            chunk_tokens = tokens[i:i+chunk_size]
-            chunk = self.pipe.tokenizer.convert_tokens_to_string(chunk_tokens)
+        enc = tiktoken.get_encoding("cl100k_base")
+        tokenized_text = enc.encode(text)
+
+        for i in range(0, len(tokenized_text), chunk_size-overlap):
+            chunk_tokens = tokenized_text[i:min(i+chunk_size, len(tokenized_text))]
+            chunk = enc.decode(chunk_tokens)
             out.append([chunk, marker])
+
+
+      
+
+        # tokens = self.pipe.tokenizer.tokenize(text)
+        # for i in range(0, len(tokens), chunk_size-overlap):
+        #     chunk_tokens = tokens[i:min(i+chunk_size, len(tokens))]
+        #     chunk = self.pipe.tokenizer.convert_tokens_to_string(chunk_tokens)
+        #     out.append([chunk, marker])
 
     def encode(self, sentences):       
         to_encode = []
@@ -84,7 +95,7 @@ class Runner (JobRunner):
             if marker != "query": marker="passage"
             if data_type == "text":
                 sentences.append([data,marker])
-            elif datatype=="application/hyperblob":
+            elif data_type=="application/hyperblob":
                 blobDisk = self.openStorage(data)
                 files = blobDisk.list()
                 supportedExts = ["html","txt","htm","md"]
