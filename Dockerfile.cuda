@@ -9,6 +9,8 @@ ENV POOL_ADDRESS="127.0.0.1"
 ENV POOL_PORT="5000"
 ENV TRANSFORMERS_DEVICE="-1"
 ENV CACHE_PATH="/cache"
+ENV HF_HOME="/cache/hugginface"
+
 VOLUME /cache
 
 
