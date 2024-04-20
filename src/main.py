@@ -60,7 +60,7 @@ class Runner (JobRunner):
         to_encode_index=[]
         out = []        
         for s in sentences:
-            hash = hashlib.sha256(self.modelName+":"+s.encode()).hexdigest()
+            hash = hashlib.sha256((self.modelName+":"+s).encode()).hexdigest()
             cache_file = self.cachePath+"/"+hash+".dat"
             if not os.path.exists(cache_file):
                 to_encode.append(s)
@@ -87,7 +87,7 @@ class Runner (JobRunner):
 
         for i in range(len(to_encode_index)):   
             out[to_encode_index[i]] = encoded[i]
-            hash = hashlib.sha256(self.modelName+":"+to_encode[i].encode()).hexdigest()
+            hash = hashlib.sha256((self.modelName+":"+to_encode[i]).encode()).hexdigest()
             with open(self.cachePath+"/"+hash+".dat", "wb") as f:
                 pickle.dump(encoded[i], f)
 
