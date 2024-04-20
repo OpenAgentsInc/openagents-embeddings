@@ -10,6 +10,7 @@ ENV POOL_PORT="5000"
 ENV TRANSFORMERS_DEVICE="-1"
 ENV CACHE_PATH="/cache"
 ENV HF_HOME="/cache/hugginface"
+ENV MODEL="intfloat/multilingual-e5-base"
 
 VOLUME /cache
 

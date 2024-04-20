@@ -22,9 +22,9 @@ class Runner (JobRunner):
         self.device = int(os.getenv('TRANSFORMERS_DEVICE', "-1"))
         self.cachePath = os.getenv('CACHE_PATH', os.path.join(os.path.dirname(__file__), "cache"))
         now = time.time()
-        model = "intfloat/multilingual-e5-base"
-        self.log("Loading "+ model + " on device "+str(self.device))
-        self.pipe = SentenceTransformer(model, device=self.device if self.device >= 0 else "cpu")
+        self.modelName = os.getenv('MODEL', "intfloat/multilingual-e5-base")
+        self.log("Loading "+ self.modelName + " on device "+str(self.device))
+        self.pipe = SentenceTransformer( self.modelName, device=self.device if self.device >= 0 else "cpu")
         self.log( "Model loaded in "+str(time.time()-now)+" seconds")
         if not os.path.exists(self.cachePath):
             os.makedirs(self.cachePath)
@@ -107,7 +107,7 @@ class Runner (JobRunner):
                 raise Exception("Unsupported data type: "+data_type)
 
         # Check local cache
-        cacheId = str(outputFormat) + str(max_tokens) + str(overlap) + str(quantize) + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])
+        cacheId = str( self.modelName) + str(outputFormat) + str(max_tokens) + str(overlap) + str(quantize) + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])
         cacheId = hashlib.sha256(cacheId.encode("utf-8")).hexdigest()
         cacheFile = os.path.join(self.cachePath, cacheId+".dat")
         if os.path.exists(cacheFile):
