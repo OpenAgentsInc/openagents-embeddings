@@ -74,7 +74,7 @@ template = """{
     "kind": {{meta.kind}},
     "created_at": {{sys.timestamp_seconds}},
     "tags": [
-        ["output", "application/hyperblob"]
+        ["output", "application/hyperdrive+bundle"]
         ["param","run-on", "openagents/embeddings" ],                             
         ["param", "max-tokens", "{{in.max_tokens}}"],
         ["param", "overlap", "{{in.overlap}}"],
