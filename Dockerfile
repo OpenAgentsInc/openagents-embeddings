@@ -13,7 +13,7 @@ ENV HF_HOME="/cache/hugginface"
 ENV MODEL="intfloat/multilingual-e5-base"
 ENV ADD_MARKERS_TO_SENTENCES="true"
 ENV OPENAI_API_KEY=""
-
+ENV NLP_CLOUD_API_KEY=""
 VOLUME /cache
 
 CMD ["python", "-u", "main.py"]

@@ -14,7 +14,7 @@ ENV MODEL="intfloat/multilingual-e5-base"
 ENV MAX_TEXT_LENGTH=512
 ENV ADD_MARKERS_TO_SENTENCES="true"
 ENV OPENAI_API_KEY=""
-
+ENV NLP_CLOUD_API_KEY=""
 VOLUME /cache
 
 
