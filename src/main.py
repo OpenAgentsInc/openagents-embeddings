@@ -43,16 +43,7 @@ class Runner (JobRunner):
         if not os.path.exists(self.cachePath):
             os.makedirs(self.cachePath)
 
-    def cacheSet(self, key, value):
-        with open(self.cachePath+"/"+key+".dat", "wb") as f:
-            pickle.dump(value, f)
-    
-    def cacheGet(self, key):
-        if os.path.exists(self.cachePath+"/"+key+".dat"):
-            with open(self.cachePath+"/"+key+".dat", "rb") as f:
-                return pickle.load(f)
-        return None
-
+ 
 
     def prepare(self, text, chunk_size, overlap , marker,  out):
         text = text.strip()
@@ -153,6 +144,7 @@ class Runner (JobRunner):
             elif data_type=="application/hyperdrive+bundle":
                 blobDisk = self.openStorage(data)
                 files = blobDisk.list()
+                print("Found files",str(files))
                 supportedExts = ["html","txt","htm","md"]
                 for file in [x for x in files if x.split(".")[-1] in supportedExts]:
                     tx=blobDisk.readUTF8(file)
