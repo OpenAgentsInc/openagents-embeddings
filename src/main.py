@@ -56,7 +56,7 @@ class Runner (JobRunner):
                 out.append([chunk, marker])
       
 
-    def encode(self, sentences):       
+    async def encode(self, sentences):       
 
 
         out = []
@@ -64,7 +64,7 @@ class Runner (JobRunner):
 
         for s in sentences:
             hash = hashlib.sha256((self.modelName+":"+s).encode()).hexdigest()
-            cached = self.cacheGet(hash)
+            cached = await self.cacheGet(hash)
             if cached is not None:
                 out.append(cached)
             else:
@@ -101,7 +101,7 @@ class Runner (JobRunner):
                 hash = encoded[i][1]
                 index = encoded[i][2]
                 out[index] = embeddings
-                self.cacheSet(hash, embeddings)
+                await  self.cacheSet(hash, embeddings)
 
         return out
 
@@ -111,7 +111,7 @@ class Runner (JobRunner):
         binary_embeddings = quantize_embeddings(embeddings, precision="binary")
         return binary_embeddings
 
-    def canRun(self,job):
+    async def canRun(self,job):
         def getParamValue(key,default=None):
             param = [x for x in job.param if x.key == key]
             return param[0].value[0] if len(param) > 0 else default
@@ -142,14 +142,14 @@ class Runner (JobRunner):
             if data_type == "text":
                 sentences.append([data,marker])
             elif data_type=="application/hyperdrive+bundle":
-                blobDisk = self.openStorage(data)
-                files = blobDisk.list()
+                blobDisk = await  self.openStorage(data)
+                files = await blobDisk.list()
                 print("Found files",str(files))
                 supportedExts = ["html","txt","htm","md"]
                 for file in [x for x in files if x.split(".")[-1] in supportedExts]:
-                    tx=blobDisk.readUTF8(file)
+                    tx=await blobDisk.readUTF8(file)
                     sentences.append([tx,marker])
-                blobDisk.close()
+                await blobDisk.close()
             else:
                 raise Exception("Unsupported data type: "+data_type)
 
@@ -157,7 +157,7 @@ class Runner (JobRunner):
         self.log("Check cache...")
         cacheId = hashlib.sha256(
             (str( self.modelName) + str(outputFormat) + str(max_tokens) + str(overlap) + str(quantize) + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])).encode("utf-8")).hexdigest()
-        cached = self.cacheGet(cacheId)
+        cached = await self.cacheGet(cacheId)
         if cached is not None:
             self.log("Cache hit")
             return cached
@@ -172,7 +172,7 @@ class Runner (JobRunner):
 
         # Create embeddings
         self.log("Create embeddings for "+str(len(sentences))+" excerpts. max_tokens="+str(max_tokens)+", overlap="+str(overlap)+", quantize="+str(quantize)+", model="+str(self.modelName))
-        embeddings = self.encode([(sentences[i][1]+": "+sentences[i][0] if self.addMarkersToSentences  else sentences[i][0]) for i in range(len(sentences))])  
+        embeddings =await self.encode([(sentences[i][1]+": "+sentences[i][0] if self.addMarkersToSentences  else sentences[i][0]) for i in range(len(sentences))])  
         if quantize:
             self.log("Quantize embeddings")
             embeddings = self.quantize(embeddings)
@@ -181,20 +181,20 @@ class Runner (JobRunner):
         self.log("Embeddings ready. Serialize for output...")
         output = ""
         if outputFormat=="application/hyperdrive+bundle":
-            blobDisk = self.createStorage()
+            blobDisk = await  self.createStorage()
             for i in range(len(sentences)):
                 dtype = embeddings[i].dtype
                 shape = embeddings[i].shape
                 sentences_bytes = sentences[i][0].encode("utf-8")
                 marker = sentences[i][1]
                 embeddings_bytes =  embeddings[i].tobytes()
-                blobDisk.writeBytes(str(i)+".embeddings.dtype", str(dtype).encode("utf-8"))
-                blobDisk.writeBytes(str(i)+".embeddings.shape", json.dumps(shape).encode("utf-8"))
-                blobDisk.writeBytes(str(i)+".embeddings", sentences_bytes)
-                blobDisk.writeBytes(str(i)+".embeddings.kind", marker.encode("utf-8"))
-                blobDisk.writeBytes(str(i)+".embeddings.vectors", embeddings_bytes)
+                await blobDisk.writeBytes(str(i)+".embeddings.dtype", str(dtype).encode("utf-8"))
+                await blobDisk.writeBytes(str(i)+".embeddings.shape", json.dumps(shape).encode("utf-8"))
+                await blobDisk.writeBytes(str(i)+".embeddings", sentences_bytes)
+                await blobDisk.writeBytes(str(i)+".embeddings.kind", marker.encode("utf-8"))
+                await blobDisk.writeBytes(str(i)+".embeddings.vectors", embeddings_bytes)
             output = blobDisk.getUrl()
-            blobDisk.close()
+            await blobDisk.close()
            
         else:
             jsonOut = []
@@ -208,7 +208,7 @@ class Runner (JobRunner):
                 )
             output=json.dumps(jsonOut)
           
-        self.cacheSet(cacheId, output)
+        await  self.cacheSet(cacheId, output)
         return output
 
 node = OpenAgentsNode(NodeConfig.meta)
