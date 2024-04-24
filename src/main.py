@@ -80,14 +80,27 @@ class Runner (JobRunner):
                     embeddings = encodedRaw[i]
                     encoded.append([np.array(embeddings),to_encode[i][1],to_encode[i][2]])
             elif self.openai:
-                encodedRaw=self.openai.embeddings.create(
-                    input=[x[0] for x in to_encode],
-                    model=self.openaiModelName
-                )
+                CHUNK_SIZE = 32
                 encoded = []
-                for i in range(len(to_encode)):
-                    embeddings = encodedRaw.data[i].embedding
-                    encoded.append([np.array(embeddings),to_encode[i][1],to_encode[i][2]])          
+
+                for i in range(0, len(to_encode), CHUNK_SIZE):
+                    print("Chunk",str(i))
+                    chunk = to_encode[i:i+CHUNK_SIZE]
+                    encodedRaw = self.openai.embeddings.create(
+                        input=[x[0] for x in chunk],
+                        model=self.openaiModelName
+                    )
+                    for j in range(len(chunk)):
+                        embeddings = encodedRaw.data[j].embedding
+                        encoded.append([np.array(embeddings), chunk[j][1], chunk[j][2]])
+                # encodedRaw=self.openai.embeddings.create(
+                #     input=[x[0] for x in to_encode],
+                #     model=self.openaiModelName
+                # )
+                # encoded = []
+                # for i in range(len(to_encode)):
+                #     embeddings = encodedRaw.data[i].embedding
+                #     encoded.append([np.array(embeddings),to_encode[i][1],to_encode[i][2]])       
             # TODO: more apis?
             else: # Use local models
                 encodedRaw = self.pipe.encode([x[0] for x in to_encode], show_progress_bar=True)
