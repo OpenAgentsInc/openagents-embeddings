@@ -27,7 +27,7 @@ class Runner (JobRunner):
         self.device = int(os.getenv('TRANSFORMERS_DEVICE', "-1"))
         self.cachePath = os.getenv('CACHE_PATH', os.path.join(os.path.dirname(__file__), "cache"))
         now = time.time()
-        self.modelName = os.getenv('MODEL', "intfloat/multilingual-e5-base")
+        self.modelName = os.getenv("EMBEDDING_MODEL") or  os.getenv('MODEL', "intfloat/multilingual-e5-base")
         self.maxTextLength = os.getenv('MAX_TEXT_LENGTH', 512)
         if self.modelName.startswith("nlpcloud:"):
             self.nlpcloud = nlpcloud.Client(self.modelName.replace("nlpcloud:",""), os.getenv('NLP_CLOUD_API_KEY'))
@@ -156,7 +156,9 @@ class Runner (JobRunner):
         # Check local cache
         self.log("Check cache...")
         cacheId = hashlib.sha256(
-            (str( self.modelName) + str(outputFormat) + str(max_tokens) + str(overlap) + str(quantize) + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])).encode("utf-8")).hexdigest()
+            (str( self.modelName) + str(outputFormat)
+             + str(max_tokens) + str(overlap) + str(quantize) 
+             + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])).encode("utf-8")).hexdigest()
         cached = await self.cacheGet(cacheId)
         if cached is not None:
             self.log("Cache hit")
