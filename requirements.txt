@@ -1,7 +1,7 @@
 grpcio==1.62.1
 protobuf==5.26.1
-https://github.com/riccardobl/openagents-grpc-proto/releases/download/v0.7.3/openagents_grpc_proto-PYTHON.tar.gz
 sentence-transformers==2.6.1
 tiktoken
 openai
 nlpcloud
+https://github.com/riccardobl/openagents-grpc-proto/releases/download/v0.7.4/openagents_grpc_proto-PYTHON.tar.gz
