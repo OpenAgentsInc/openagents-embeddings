@@ -17,7 +17,8 @@ import tiktoken
 from openai import OpenAI
 import nlpcloud
 import numpy as np
- 
+import asyncio
+import concurrent
 class Runner (JobRunner):
     openai = None
     nlpcloud = None
@@ -25,7 +26,6 @@ class Runner (JobRunner):
     def __init__(self, filters, meta, template, sockets):
         super().__init__(filters, meta, template, sockets)
         self.device = int(os.getenv('TRANSFORMERS_DEVICE', "-1"))
-        self.cachePath = os.getenv('CACHE_PATH', os.path.join(os.path.dirname(__file__), "cache"))
         now = time.time()
         self.modelName = os.getenv("EMBEDDING_MODEL") or  os.getenv('MODEL', "intfloat/multilingual-e5-base")
         self.maxTextLength = os.getenv('MAX_TEXT_LENGTH', 512)
@@ -40,8 +40,7 @@ class Runner (JobRunner):
             self.pipe = SentenceTransformer( self.modelName, device=self.device if self.device >= 0 else "cpu")
             self.log( "Model loaded in "+str(time.time()-now)+" seconds")
         self.addMarkersToSentences = os.getenv('ADD_MARKERS_TO_SENTENCES', "true") == "true"
-        if not os.path.exists(self.cachePath):
-            os.makedirs(self.cachePath)
+
 
  
 
@@ -64,7 +63,7 @@ class Runner (JobRunner):
 
         for s in sentences:
             hash = hashlib.sha256((self.modelName+":"+s).encode()).hexdigest()
-            cached = await self.cacheGet(hash)
+            cached = await self.cacheGet(hash, local=True)
             if cached is not None:
                 out.append(cached)
             else:
@@ -80,7 +79,7 @@ class Runner (JobRunner):
                     embeddings = encodedRaw[i]
                     encoded.append([np.array(embeddings),to_encode[i][1],to_encode[i][2]])
             elif self.openai:
-                CHUNK_SIZE = 32
+                CHUNK_SIZE = 1024
                 encoded = []
 
                 for i in range(0, len(to_encode), CHUNK_SIZE):
@@ -93,14 +92,7 @@ class Runner (JobRunner):
                     for j in range(len(chunk)):
                         embeddings = encodedRaw.data[j].embedding
                         encoded.append([np.array(embeddings), chunk[j][1], chunk[j][2]])
-                # encodedRaw=self.openai.embeddings.create(
-                #     input=[x[0] for x in to_encode],
-                #     model=self.openaiModelName
-                # )
-                # encoded = []
-                # for i in range(len(to_encode)):
-                #     embeddings = encodedRaw.data[i].embedding
-                #     encoded.append([np.array(embeddings),to_encode[i][1],to_encode[i][2]])       
+
             # TODO: more apis?
             else: # Use local models
                 encodedRaw = self.pipe.encode([x[0] for x in to_encode], show_progress_bar=True)
@@ -109,13 +101,14 @@ class Runner (JobRunner):
                     embeddings = encodedRaw[i]
                     encoded.append([embeddings,to_encode[i][1],to_encode[i][2]])
 
+            waitList = []
             for i in range(len(encoded)):   
                 embeddings = encoded[i][0]
                 hash = encoded[i][1]
                 index = encoded[i][2]
                 out[index] = embeddings
-                await  self.cacheSet(hash, embeddings)
-
+                waitList.append(self.cacheSet(hash, embeddings, local=True))
+            await asyncio.gather(*waitList)
         return out
 
     def quantize(self, embeddings):
@@ -172,9 +165,8 @@ class Runner (JobRunner):
             (str( self.modelName) + str(outputFormat)
              + str(max_tokens) + str(overlap) + str(quantize) 
              + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])).encode("utf-8")).hexdigest()
-        cached = await self.cacheGet(cacheId)
-        if cached is not None:
-            self.log("Cache hit")
+        cached = await self.cacheGet(cacheId,local=True)
+        if cached is not None:            
             return cached
 
         # Split long sentences
@@ -196,22 +188,49 @@ class Runner (JobRunner):
         self.log("Embeddings ready. Serialize for output...")
         output = ""
         if outputFormat=="application/hyperdrive+bundle":
-            blobDisk = await  self.createStorage()
+            blobDisk = await  self.createStorage()           
+            
+            sentencesOut = await blobDisk.openWriteStream("sentences.bin")
+            await sentencesOut.writeInt(len(sentences))
+
             for i in range(len(sentences)):
-                dtype = embeddings[i].dtype
+                print("Write sentence",str(i))
+                sentence =  sentences[i][0].encode("utf-8")
+                await sentencesOut.writeInt(len(sentence))
+                await sentencesOut.write(sentence)
+
+            embeddingsOut = await blobDisk.openWriteStream("embeddings.bin")
+            await embeddingsOut.writeInt(len(embeddings))    
+            for i in range(len(embeddings)):
+                print("Write embeddings",str(i))
+                
                 shape = embeddings[i].shape
-                sentences_bytes = sentences[i][0].encode("utf-8")
-                marker = sentences[i][1]
-                embeddings_bytes =  embeddings[i].tobytes()
-                await blobDisk.writeBytes(str(i)+".embeddings.dtype", str(dtype).encode("utf-8"))
-                await blobDisk.writeBytes(str(i)+".embeddings.shape", json.dumps(shape).encode("utf-8"))
-                await blobDisk.writeBytes(str(i)+".embeddings", sentences_bytes)
-                await blobDisk.writeBytes(str(i)+".embeddings.kind", marker.encode("utf-8"))
-                await blobDisk.writeBytes(str(i)+".embeddings.vectors", embeddings_bytes)
+                await embeddingsOut.writeInt(len(shape))
+                for s in shape:
+                    await embeddingsOut.writeInt(s)
+                
+                dtype = str(embeddings[i].dtype).encode()
+                await embeddingsOut.writeInt(len(dtype))
+                await embeddingsOut.write(dtype)
+
+                bs = embeddings[i].tobytes()
+                await embeddingsOut.writeInt(len(bs))
+                await embeddingsOut.write(bs)
+
+            await embeddingsOut.end()
+            await sentencesOut.end()
+
+            await embeddingsOut.close()
+            await sentencesOut.close()
+                
+
             output = blobDisk.getUrl()
             await blobDisk.close()
+
+            
            
         else:
+
             jsonOut = []
             for i in range(len(sentences)):
                 dtype = embeddings[i].dtype
@@ -223,7 +242,7 @@ class Runner (JobRunner):
                 )
             output=json.dumps(jsonOut)
           
-        await  self.cacheSet(cacheId, output)
+        await  self.cacheSet(cacheId, output,local=True)
         return output
 
 node = OpenAgentsNode(NodeConfig.meta)
