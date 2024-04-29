@@ -20,26 +20,27 @@ import numpy as np
 import asyncio
 import concurrent
 class Runner (JobRunner):
-    openai = None
-    nlpcloud = None
+
 
     def __init__(self, filters, meta, template, sockets):
         super().__init__(filters, meta, template, sockets)
-        self.device = int(os.getenv('TRANSFORMERS_DEVICE', "-1"))
+        self.openai = None
+        self.nlpcloud = None
+        self.device = int(os.getenv('EMBEDDINGS_TRANSFORMERS_DEVICE', "-1"))
         now = time.time()
-        self.modelName = os.getenv("EMBEDDING_MODEL") or  os.getenv('MODEL', "intfloat/multilingual-e5-base")
-        self.maxTextLength = os.getenv('MAX_TEXT_LENGTH', 512)
+        self.modelName =   os.getenv('EMBEDDINGS_MODEL', "intfloat/multilingual-e5-base")
+        self.maxTextLength = os.getenv('EMBEDDINGS_MAX_TEXT_LENGTH', 512)
         if self.modelName.startswith("nlpcloud:"):
             self.nlpcloud = nlpcloud.Client(self.modelName.replace("nlpcloud:",""), os.getenv('NLP_CLOUD_API_KEY'))
         elif self.modelName.startswith("openai:"):
-            self.log("Using OpenAI API "+ self.modelName)
+            self.getLogger().info("Using OpenAI API "+ self.modelName)
             self.openai = OpenAI()
             self.openaiModelName = self.modelName.replace("openai:","")
         else:
-            self.log("Loading "+ self.modelName + " on device "+str(self.device))
+            self.getLogger().info("Loading "+ self.modelName + " on device "+str(self.device))
             self.pipe = SentenceTransformer( self.modelName, device=self.device if self.device >= 0 else "cpu")
-            self.log( "Model loaded in "+str(time.time()-now)+" seconds")
-        self.addMarkersToSentences = os.getenv('ADD_MARKERS_TO_SENTENCES', "true") == "true"
+            self.getLogger().info( "Model loaded in "+str(time.time()-now)+" seconds")
+        self.addMarkersToSentences = os.getenv('EMBEDDINGS_ADD_MARKERS_TO_SENTENCES', "true") == "true"
 
 
  
@@ -83,7 +84,7 @@ class Runner (JobRunner):
                 encoded = []
 
                 for i in range(0, len(to_encode), CHUNK_SIZE):
-                    print("Chunk",str(i))
+                    self.getLogger().log("Chunk",str(i))
                     chunk = to_encode[i:i+CHUNK_SIZE]
                     encodedRaw = self.openai.embeddings.create(
                         input=[x[0] for x in chunk],
@@ -143,14 +144,14 @@ class Runner (JobRunner):
             data = jin.data
             data_type = jin.type 
             marker = jin.marker
-            self.log("Use data: "+data)
+            self.getLogger().log("Use data: "+data)
             if marker != "query": marker="passage"
             if data_type == "text":
                 sentences.append([data,marker])
             elif data_type=="application/hyperdrive+bundle":
                 blobDisk = await  self.openStorage(data)
                 files = await blobDisk.list()
-                print("Found files",str(files))
+                self.getLogger().log("Found files",str(files))
                 supportedExts = ["html","txt","htm","md"]
                 for file in [x for x in files if x.split(".")[-1] in supportedExts]:
                     tx=await blobDisk.readUTF8(file)
@@ -160,17 +161,18 @@ class Runner (JobRunner):
                 raise Exception("Unsupported data type: "+data_type)
 
         # Check local cache
-        self.log("Check cache...")
+        self.getLogger().info("Check cache...")
         cacheId = hashlib.sha256(
             (str( self.modelName) + str(outputFormat)
              + str(max_tokens) + str(overlap) + str(quantize) 
              + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])).encode("utf-8")).hexdigest()
+        self.getLogger().log("With cache id",cacheId)
         cached = await self.cacheGet(cacheId,local=True)
         if cached is not None:            
             return cached
 
         # Split long sentences
-        self.log("Prepare sentences...")
+        self.getLogger().info("Prepare sentences...")
         sentences_chunks=[]
         for sentence in sentences:
             self.prepare(sentence[0], max_tokens, overlap, sentence[1], sentences_chunks)
@@ -178,14 +180,14 @@ class Runner (JobRunner):
         
 
         # Create embeddings
-        self.log("Create embeddings for "+str(len(sentences))+" excerpts. max_tokens="+str(max_tokens)+", overlap="+str(overlap)+", quantize="+str(quantize)+", model="+str(self.modelName))
+        self.getLogger().info("Create embeddings for "+str(len(sentences))+" excerpts. max_tokens="+str(max_tokens)+", overlap="+str(overlap)+", quantize="+str(quantize)+", model="+str(self.modelName))
         embeddings =await self.encode([(sentences[i][1]+": "+sentences[i][0] if self.addMarkersToSentences  else sentences[i][0]) for i in range(len(sentences))])  
         if quantize:
-            self.log("Quantize embeddings")
+            self.getLogger().info("Quantize embeddings")
             embeddings = self.quantize(embeddings)
 
         # Serialize to an output format and return as string
-        self.log("Embeddings ready. Serialize for output...")
+        self.getLogger().info("Embeddings ready. Serialize for output...")
         output = ""
         if outputFormat=="application/hyperdrive+bundle":
             blobDisk = await  self.createStorage()           
@@ -194,7 +196,7 @@ class Runner (JobRunner):
             await sentencesOut.writeInt(len(sentences))
 
             for i in range(len(sentences)):
-                print("Write sentence",str(i))
+                self.getLogger().log("Write sentence",str(i))
                 sentence =  sentences[i][0].encode("utf-8")
                 await sentencesOut.writeInt(len(sentence))
                 await sentencesOut.write(sentence)
@@ -202,7 +204,7 @@ class Runner (JobRunner):
             embeddingsOut = await blobDisk.openWriteStream("embeddings.bin")
             await embeddingsOut.writeInt(len(embeddings))    
             for i in range(len(embeddings)):
-                print("Write embeddings",str(i))
+                self.getLogger().log("Write embeddings",str(i))
                 
                 shape = embeddings[i].shape
                 await embeddingsOut.writeInt(len(shape))
@@ -233,6 +235,7 @@ class Runner (JobRunner):
 
             jsonOut = []
             for i in range(len(sentences)):
+                self.getLogger().log("Serialize embeddings",str(i))
                 dtype = embeddings[i].dtype
                 shape = embeddings[i].shape
                 embeddings_bytes =  embeddings[i].tobytes()
@@ -242,7 +245,9 @@ class Runner (JobRunner):
                 )
             output=json.dumps(jsonOut)
           
+        self.getLogger().info("Output ready. Cache and return.")
         await  self.cacheSet(cacheId, output,local=True)
+        self.getLogger().log("Return output")
         return output
 
 node = OpenAgentsNode(NodeConfig.meta)
