@@ -29,7 +29,7 @@ class Runner (JobRunner):
         self.device = int(os.getenv('EMBEDDINGS_TRANSFORMERS_DEVICE', "-1"))
         now = time.time()
         self.modelName =   os.getenv('EMBEDDINGS_MODEL', "intfloat/multilingual-e5-base")
-        self.maxTextLength = os.getenv('EMBEDDINGS_MAX_TEXT_LENGTH', 512)
+        self.maxTextLength = int(os.getenv('EMBEDDINGS_MAX_TEXT_LENGTH', "512"))
         if self.modelName.startswith("nlpcloud:"):
             self.nlpcloud = nlpcloud.Client(self.modelName.replace("nlpcloud:",""), os.getenv('NLP_CLOUD_API_KEY'))
         elif self.modelName.startswith("openai:"):
