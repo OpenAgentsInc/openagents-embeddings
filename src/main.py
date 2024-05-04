@@ -1,7 +1,5 @@
-from OpenAgentsNode import OpenAgentsNode
-from OpenAgentsNode import JobRunner
-import config as NodeConfig
-from events import embeddings as EmbeddingsEvent
+from openagents import JobRunner,OpenAgentsNode,NodeConfig,RunnerConfig
+
 
 from sentence_transformers import SentenceTransformer
 import time
@@ -19,11 +17,96 @@ import nlpcloud
 import numpy as np
 import asyncio
 import concurrent
-class Runner (JobRunner):
+class EmbeddingsRunner (JobRunner):
 
 
-    def __init__(self, filters, meta, template, sockets):
-        super().__init__(filters, meta, template, sockets)
+    def __init__(self):
+        super().__init__(
+            RunnerConfig()\
+                .kind(5003)\
+                .name("Embedding Generator")\
+                .description("Generate embeddings from input document")\
+                .tos("https://openagents.com/terms") \
+                .privacy("https://openagents.com/privacy")\
+                .author("OpenAgentsInc")\
+                .website("https://github.com/OpenAgentsInc/openagents-embeddings")\
+                .picture("")\
+                .tags([
+                    "tool", 
+                    "embeddings-generation"
+                ]) \
+                .filters()\
+                    .filterByRunOn("openagents\\/embeddings") \
+                    .commit()\
+                .template("""{
+                    "kind": {{meta.kind}},
+                    "created_at": {{sys.timestamp_seconds}},
+                    "tags": [
+                        ["output", "application/hyperdrive+bundle"]
+                        ["param","run-on", "openagents/embeddings" ],                             
+                        ["param", "max-tokens", "{{in.max_tokens}}"],
+                        ["param", "overlap", "{{in.overlap}}"],
+                        ["param", "quantize", "{{in.quantize}}"],
+                        ["param", "model", "{{in.model}}"],
+                        ["output", "{{in.outputType}}"],
+                        {{#in.documents}}
+                        ["i", "{{data}}", "{{data_type}}", "", "{{marker}}"],
+                        {{/in.documents}}
+                        ["expiration", "{{sys.expiration_timestamp_seconds}}"],
+                    ],
+                    "content":""
+                }
+                """)\
+                .inSocket("max_tokens","number")\
+                    .description("The maximum number of tokens for each text chunk")\
+                    .defaultValue(1000)\
+                    .name("Max Tokens")\
+                .commit()\
+                .inSocket("overlap","number")\
+                    .description("The number of tokens to overlap between each chunk")\
+                    .defaultValue(128)\
+                    .name("Overlap")\
+                .commit()\
+                .inSocket("model","string")\
+                    .description("Specify which model to use. Empty for any")\
+                    .defaultValue("")\
+                    .name("Model")\
+                .commit()\
+                .inSocket("documents", "array")\
+                    .description("The documents to generate embeddings from")\
+                    .schema()\
+                        .field("document", "map")\
+                            .description("A document")\
+                            .schema()\
+                                .field("data", "string")\
+                                    .description("The data to generate embeddings from")\
+                                    .name("Data")\
+                                .commit()\
+                                .field("data_type", "string")\
+                                    .description("The type of the data")\
+                                    .defaultValue("text")\
+                                    .name("Data Type")\
+                                .commit()\
+                                .field("marker", "string")\
+                                    .description("'query' if it is a query or 'passage' if it is a passage")\
+                                    .name("Marker")\
+                                .commit()\
+                            .commit()\
+                        .commit()\
+                    .commit()\
+                .commit()\
+                .inSocket("outputType", "string")\
+                    .description("The Desired Output Type")\
+                    .defaultValue("application/json")\
+                .commit()\
+                .outSocket("output", "string")\
+                    .description("The embeddings generated from the input data")\
+                    .name("Output")\
+                .commit()\
+            .commit()
+        )
+
+
         self.openai = None
         self.nlpcloud = None
         self.device = int(os.getenv('EMBEDDINGS_TRANSFORMERS_DEVICE', "-1"))
@@ -250,6 +333,6 @@ class Runner (JobRunner):
         self.getLogger().log("Return output")
         return output
 
-node = OpenAgentsNode(NodeConfig.meta)
-node.registerRunner(Runner(filters=EmbeddingsEvent.filters,sockets=EmbeddingsEvent.sockets,meta=EmbeddingsEvent.meta,template=EmbeddingsEvent.template))
+node = OpenAgentsNode(NodeConfig().name("Embeddings").description("Generate embeddings from input documents").version("1.0.0"))
+node.registerRunner(EmbeddingsRunner())
 node.start()
