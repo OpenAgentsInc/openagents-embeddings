@@ -37,20 +37,20 @@ class EmbeddingsRunner (JobRunner):
                 },
                 filter={"filterByRunOn": "openagents\\/embeddings"},
                 template="""{
-                    "kind": {{meta.kind}},
-                    "created_at": {{sys.timestamp_seconds}},
+                    "kind": {{{meta.kind}}},
+                    "created_at": {{{sys.timestamp_seconds}}},
                     "tags": [
                         ["output", "application/hyperdrive+bundle"]
                         ["param","run-on", "openagents/embeddings" ],                             
-                        ["param", "max-tokens", "{{in.max_tokens}}"],
-                        ["param", "overlap", "{{in.overlap}}"],
-                        ["param", "quantize", "{{in.quantize}}"],
-                        ["param", "model", "{{in.model}}"],
-                        ["output", "{{in.outputType}}"],
+                        ["param", "max-tokens", "{{{in.max_tokens}}}"],
+                        ["param", "overlap", "{{{in.overlap}}}"],
+                        ["param", "quantize", "{{{in.quantize}}}"],
+                        ["param", "model", "{{{in.model}}}"],
+                        ["output", "{{{in.outputType}}}"],
                         {{#in.documents}}
-                        ["i", "{{data}}", "{{data_type}}", "", "{{marker}}"],
+                        ["i", "{{data}}", "{{{data_type}}}", "", "{{{marker}}}"],
                         {{/in.documents}}
-                        ["expiration", "{{sys.expiration_timestamp_seconds}}"],
+                        ["expiration", "{{{sys.expiration_timestamp_seconds}}}"]
                     ],
                     "content":""
                 }
