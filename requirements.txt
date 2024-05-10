@@ -3,4 +3,4 @@ tiktoken
 openai
 nlpcloud
 requests
-openagents-node-sdk==0.3
+openagents-node-sdk==0.3.1
