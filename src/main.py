@@ -1,4 +1,4 @@
-from openagents import JobRunner,OpenAgentsNode,NodeConfig,RunnerConfig
+from openagents import JobRunner,OpenAgentsNode,NodeConfig,RunnerConfig, Logger
 
 
 from sentence_transformers import SentenceTransformer
@@ -17,28 +17,26 @@ import nlpcloud
 import numpy as np
 import asyncio
 import concurrent
+
 class EmbeddingsRunner (JobRunner):
 
 
     def __init__(self):
         super().__init__(
-            RunnerConfig()\
-                .kind(5003)\
-                .name("Embedding Generator")\
-                .description("Generate embeddings from input document")\
-                .tos("https://openagents.com/terms") \
-                .privacy("https://openagents.com/privacy")\
-                .author("OpenAgentsInc")\
-                .website("https://github.com/OpenAgentsInc/openagents-embeddings")\
-                .picture("")\
-                .tags([
-                    "tool", 
-                    "embeddings-generation"
-                ]) \
-                .filters()\
-                    .filterByRunOn("openagents\\/embeddings") \
-                    .commit()\
-                .template("""{
+            RunnerConfig(
+                meta={
+                    "kind": 5003,                    
+                    "name": "Embedding Generator",
+                    "description": "Generate embeddings from input document",
+                    "tos": "https://openagents.com/terms",
+                    "privacy": "https://openagents.com/privacy",
+                    "author": "OpenAgentsInc",
+                    "web": "https://github.com/OpenAgentsInc/openagents-embeddings",
+                    "picture": "",
+                    "tags": [ "embeddings-generation"],
+                },
+                filter={"filterByRunOn": "openagents\\/embeddings"},
+                template="""{
                     "kind": {{meta.kind}},
                     "created_at": {{sys.timestamp_seconds}},
                     "tags": [
@@ -56,73 +54,100 @@ class EmbeddingsRunner (JobRunner):
                     ],
                     "content":""
                 }
-                """)\
-                .inSocket("max_tokens","number")\
-                    .description("The maximum number of tokens for each text chunk")\
-                    .defaultValue(1000)\
-                    .name("Max Tokens")\
-                .commit()\
-                .inSocket("overlap","number")\
-                    .description("The number of tokens to overlap between each chunk")\
-                    .defaultValue(128)\
-                    .name("Overlap")\
-                .commit()\
-                .inSocket("model","string")\
-                    .description("Specify which model to use. Empty for any")\
-                    .defaultValue("")\
-                    .name("Model")\
-                .commit()\
-                .inSocket("documents", "array")\
-                    .description("The documents to generate embeddings from")\
-                    .schema()\
-                        .field("document", "map")\
-                            .description("A document")\
-                            .schema()\
-                                .field("data", "string")\
-                                    .description("The data to generate embeddings from")\
-                                    .name("Data")\
-                                .commit()\
-                                .field("data_type", "string")\
-                                    .description("The type of the data")\
-                                    .defaultValue("text")\
-                                    .name("Data Type")\
-                                .commit()\
-                                .field("marker", "string")\
-                                    .description("'query' if it is a query or 'passage' if it is a passage")\
-                                    .name("Marker")\
-                                .commit()\
-                            .commit()\
-                        .commit()\
-                    .commit()\
-                .commit()\
-                .inSocket("outputType", "string")\
-                    .description("The Desired Output Type")\
-                    .defaultValue("application/json")\
-                .commit()\
-                .outSocket("output", "string")\
-                    .description("The embeddings generated from the input data")\
-                    .name("Output")\
-                .commit()\
-            .commit()
+                """,
+                sockets={
+                    "in":{
+                        "max_tokens":{
+                            "title":"Max Tokens",
+                            "description":"The maximum number of tokens for each text chunk",
+                            "type":"integer",
+                            "default":1000
+                        },
+                        "overlap":{
+                            "title":"Overlap",
+                            "description":"The number of overlapping tokens between chunks",
+                            "type":"integer",
+                            "default":128
+                        },
+                        "model":{
+                            "title":"Model",
+                            "description":"The model to use for embeddings generation",
+                            "type":"string"
+                        },
+                        "quantize":{
+                            "title":"Quantize",
+                            "description":"Quantize embeddings",
+                            "type":"boolean",
+                            "default":True
+                        },
+                        "documents":{
+                            "title":"Documents",
+                            "description":"The input documents",
+                            "type":"array",
+                            "items":{
+                                "type":"object",
+                                "properties":{
+                                    "data":{
+                                        "title":"Data",
+                                        "description":"The input data",
+                                        "type":"string",
+                                        "format":"text"
+                                    },
+                                    "data_type":{
+                                        "title":"Data Type",
+                                        "description":"The type of the input data",
+                                        "type":"string",
+                                        "format":"text"
+                                    },
+                                    "marker":{
+                                        "title":"Marker",
+                                        "description":"The marker for the input data",
+                                        "type":"string",
+                                        "format":"text"
+                                    }
+                                }
+                            }
+                        },
+                        "outputType":{
+                            "title":"Output Type",
+                            "description":"The output type",
+                            "type":"string",
+                            "default":"application/json"
+                        }
+                    },
+                    "out":{
+                        "content":{
+                            "title":"Content",
+                            "description":"The output content",
+                            "type":"string"
+                        }
+                    }
+
+                }
+            )         
         )
+        self.setRunInParallel(True)
 
-
+    async def init (self,node):
         self.openai = None
         self.nlpcloud = None
         self.device = int(os.getenv('EMBEDDINGS_TRANSFORMERS_DEVICE', "-1"))
         now = time.time()
         self.modelName =   os.getenv('EMBEDDINGS_MODEL', "intfloat/multilingual-e5-base")
         self.maxTextLength = int(os.getenv('EMBEDDINGS_MAX_TEXT_LENGTH', "512"))
+        
+        logger=node.getLogger()
+
         if self.modelName.startswith("nlpcloud:"):
             self.nlpcloud = nlpcloud.Client(self.modelName.replace("nlpcloud:",""), os.getenv('NLP_CLOUD_API_KEY'))
         elif self.modelName.startswith("openai:"):
-            self.getLogger().info("Using OpenAI API "+ self.modelName)
+            logger.info("Using OpenAI API "+ self.modelName)
             self.openai = OpenAI()
             self.openaiModelName = self.modelName.replace("openai:","")
         else:
-            self.getLogger().info("Loading "+ self.modelName + " on device "+str(self.device))
+            logger.info("Loading "+ self.modelName + " on device "+str(self.device))
             self.pipe = SentenceTransformer( self.modelName, device=self.device if self.device >= 0 else "cpu")
-            self.getLogger().info( "Model loaded in "+str(time.time()-now)+" seconds")
+            logger.info( "Model loaded in "+str(time.time()-now)+" seconds")
         self.addMarkersToSentences = os.getenv('EMBEDDINGS_ADD_MARKERS_TO_SENTENCES', "true") == "true"
 
 
@@ -139,15 +164,15 @@ class EmbeddingsRunner (JobRunner):
                 out.append([chunk, marker])
       
 
-    async def encode(self, sentences):       
-
+    async def encode(self, sentences,ctx):       
+        logger=ctx.getLogger()
 
         out = []
         to_encode = []
 
         for s in sentences:
             hash = hashlib.sha256((self.modelName+":"+s).encode()).hexdigest()
-            cached = await self.cacheGet(hash, local=True)
+            cached = await ctx.cacheGet(hash, local=True)
             if cached is not None:
                 out.append(cached)
             else:
@@ -167,7 +192,7 @@ class EmbeddingsRunner (JobRunner):
                 encoded = []
 
                 for i in range(0, len(to_encode), CHUNK_SIZE):
-                    self.getLogger().log("Chunk",str(i))
+                    logger.log("Chunk",str(i))
                     chunk = to_encode[i:i+CHUNK_SIZE]
                     encodedRaw = self.openai.embeddings.create(
                         input=[x[0] for x in chunk],
@@ -191,7 +216,7 @@ class EmbeddingsRunner (JobRunner):
                 hash = encoded[i][1]
                 index = encoded[i][2]
                 out[index] = embeddings
-                waitList.append(self.cacheSet(hash, embeddings, local=True))
+                waitList.append(ctx.cacheSet(hash, embeddings, local=True))
             await asyncio.gather(*waitList)
         return out
 
@@ -201,61 +226,58 @@ class EmbeddingsRunner (JobRunner):
         binary_embeddings = quantize_embeddings(embeddings, precision="binary")
         return binary_embeddings
 
-    async def canRun(self,job):
-        def getParamValue(key,default=None):
-            param = [x for x in job.param if x.key == key]
-            return param[0].value[0] if len(param) > 0 else default
-        model = getParamValue("model", self.modelName)
+    async def canRun(self,ctx):
+        model = ctx.getJobParamValue("model", self.modelName)
         return model == self.modelName
 
-    async def run(self,job):
-        def getParamValue(key,default=None):
-            param = [x for x in job.param if x.key == key]
-            return param[0].value[0] if len(param) > 0 else default
-
+    async def run(self,ctx):
+    
         # Extract parameters
-        max_tokens = int(getParamValue("max-tokens", self.maxTextLength))
+        max_tokens = int(ctx.getJobParamValue("max-tokens", self.maxTextLength))
         max_tokens = min(max_tokens, self.maxTextLength)
 
-        overlap = int(getParamValue("overlap",  int(max_tokens/3)))
-        quantize = getParamValue("quantize", "true") == "true"
-        outputFormat = job.outputFormat
+        overlap = int(ctx.getJobParamValue("overlap",  int(max_tokens/3)))
+        quantize = ctx.getJobParamValue("quantize", "true") == "true"
+        outputFormat = ctx.getOutputFormat()
 
+        job=ctx.getJob()
+        logger=ctx.getLogger()
+        
         # Extract input data
         sentences = []
         for jin in job.input:
             data = jin.data
             data_type = jin.type 
             marker = jin.marker
-            self.getLogger().log("Use data: "+data)
+            
             if marker != "query": marker="passage"
             if data_type == "text":
                 sentences.append([data,marker])
             elif data_type=="application/hyperdrive+bundle":
-                blobDisk = await  self.openStorage(data)
-                files = await blobDisk.list()
-                self.getLogger().log("Found files",str(files))
+                disk = await  ctx.openStorage(data)
+                files = await disk.list()
+                logger.log("Found files",str(files))
                 supportedExts = ["html","txt","htm","md"]
                 for file in [x for x in files if x.split(".")[-1] in supportedExts]:
-                    tx=await blobDisk.readUTF8(file)
+                    tx=await disk.readUTF8(file)
                     sentences.append([tx,marker])
-                await blobDisk.close()
+                await disk.close()
             else:
                 raise Exception("Unsupported data type: "+data_type)
 
         # Check local cache
-        self.getLogger().info("Check cache...")
+        logger.info("Check cache...")
         cacheId = hashlib.sha256(
             (str( self.modelName) + str(outputFormat)
              + str(max_tokens) + str(overlap) + str(quantize) 
              + "".join([sentences[i][0] + ":" + sentences[i][1] for i in range(len(sentences))])).encode("utf-8")).hexdigest()
-        self.getLogger().log("With cache id",cacheId)
-        cached = await self.cacheGet(cacheId,local=True)
+        logger.log("With cache id",cacheId)
+        cached = await ctx.cacheGet(cacheId,local=True)
         if cached is not None:            
             return cached
 
         # Split long sentences
-        self.getLogger().info("Prepare sentences...")
+        logger.info("Prepare sentences...")
         sentences_chunks=[]
         for sentence in sentences:
             self.prepare(sentence[0], max_tokens, overlap, sentence[1], sentences_chunks)
@@ -263,31 +285,31 @@ class EmbeddingsRunner (JobRunner):
         
 
         # Create embeddings
-        self.getLogger().info("Create embeddings for "+str(len(sentences))+" excerpts. max_tokens="+str(max_tokens)+", overlap="+str(overlap)+", quantize="+str(quantize)+", model="+str(self.modelName))
-        embeddings =await self.encode([(sentences[i][1]+": "+sentences[i][0] if self.addMarkersToSentences  else sentences[i][0]) for i in range(len(sentences))])  
+        logger.info("Create embeddings for "+str(len(sentences))+" excerpts. max_tokens="+str(max_tokens)+", overlap="+str(overlap)+", quantize="+str(quantize)+", model="+str(self.modelName))
+        embeddings =await self.encode([(sentences[i][1]+": "+sentences[i][0] if self.addMarkersToSentences  else sentences[i][0]) for i in range(len(sentences))],ctx)  
         if quantize:
-            self.getLogger().info("Quantize embeddings")
+            logger.info("Quantize embeddings")
             embeddings = self.quantize(embeddings)
 
         # Serialize to an output format and return as string
-        self.getLogger().info("Embeddings ready. Serialize for output...")
+        logger.info("Embeddings ready. Serialize for output...")
         output = ""
         if outputFormat=="application/hyperdrive+bundle":
-            blobDisk = await  self.createStorage()           
+            disk = await  ctx.createStorage()           
             
-            sentencesOut = await blobDisk.openWriteStream("sentences.bin")
+            sentencesOut = await disk.openWriteStream("sentences.bin")
             await sentencesOut.writeInt(len(sentences))
 
             for i in range(len(sentences)):
-                self.getLogger().log("Write sentence",str(i))
+                logger.log("Write sentence",str(i))
                 sentence =  sentences[i][0].encode("utf-8")
                 await sentencesOut.writeInt(len(sentence))
                 await sentencesOut.write(sentence)
 
-            embeddingsOut = await blobDisk.openWriteStream("embeddings.bin")
+            embeddingsOut = await disk.openWriteStream("embeddings.bin")
             await embeddingsOut.writeInt(len(embeddings))    
             for i in range(len(embeddings)):
-                self.getLogger().log("Write embeddings",str(i))
+                logger.log("Write embeddings",str(i))
                 
                 shape = embeddings[i].shape
                 await embeddingsOut.writeInt(len(shape))
@@ -309,8 +331,8 @@ class EmbeddingsRunner (JobRunner):
             await sentencesOut.close()
                 
 
-            output = blobDisk.getUrl()
-            await blobDisk.close()
+            output = disk.getUrl()
+            await disk.close()
 
             
            
@@ -318,7 +340,7 @@ class EmbeddingsRunner (JobRunner):
 
             jsonOut = []
             for i in range(len(sentences)):
-                self.getLogger().log("Serialize embeddings",str(i))
+                logger.log("Serialize embeddings",str(i))
                 dtype = embeddings[i].dtype
                 shape = embeddings[i].shape
                 embeddings_bytes =  embeddings[i].tobytes()
@@ -328,11 +350,15 @@ class EmbeddingsRunner (JobRunner):
                 )
             output=json.dumps(jsonOut)
           
-        self.getLogger().info("Output ready. Cache and return.")
-        await  self.cacheSet(cacheId, output,local=True)
-        self.getLogger().log("Return output")
+        logger.info("Output ready. Cache and return.")
+        await  ctx.cacheSet(cacheId, output,local=True)
+        logger.log("Return output")
         return output
 
-node = OpenAgentsNode(NodeConfig().name("Embeddings").description("Generate embeddings from input documents").version("1.0.0"))
+node = OpenAgentsNode(NodeConfig({
+    "name": "OpenAgents Embeddings",
+    "description": "Embeddings generation service",
+    "version": "0.1.0",
+}))
 node.registerRunner(EmbeddingsRunner())
 node.start()
